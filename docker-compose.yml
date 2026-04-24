@@ -1,0 +1,130 @@
+version: '3.8'
+
+# ============================================================
+# SERVICII
+# ============================================================
+services:
+
+  # ----------------------------------------------------------
+  # PostgreSQL — baza de date principală
+  # Rulează schema.sql și seed.sql automat la prima pornire
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - db-network
+    healthcheck:
+      # Verificăm că Postgres acceptă conexiuni înainte să pornim io-service
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+
+  # ----------------------------------------------------------
+  # Adminer — UI pentru inspecție și administrare DB
+  # Accesibil la http://localhost:8080
+  # Server: postgres | User: postgres | Parolă: postgres
+  # ----------------------------------------------------------
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    ports:
+      - "8080:8080"
+    networks:
+      - db-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+
+  # ----------------------------------------------------------
+  # IO Service — singurul serviciu cu acces la DB
+  # Expus doar intern (fără ports către host)
+  # ----------------------------------------------------------
+  io-service:
+    build:
+      context: ../../io-service    # calea către repo-ul io-service
+      dockerfile: Dockerfile
+    container_name: io-service
+    environment:
+      PORT:        3002
+      DB_HOST:     postgres        # hostname = numele serviciului din compose
+      DB_PORT:     5432
+      DB_NAME:     ${POSTGRES_DB}
+      DB_USER:     ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - db-network      # vorbește cu postgres
+      - internal        # vorbește cu auth-service și business-logic
+    depends_on:
+      postgres:
+        condition: service_healthy  # așteptăm până postgres e ready
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+
+  # ----------------------------------------------------------
+  # Auth Service — autentificare și emitere JWT
+  # Expus pe portul 3001 pentru testare locală cu Postman
+  # În producție (Swarm), Kong îl va apela intern
+  # ----------------------------------------------------------
+  auth-service:
+    build:
+      context: ../../auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    environment:
+      PORT:            3001
+      JWT_SECRET:      ${JWT_SECRET}
+      JWT_EXPIRES_IN:  ${JWT_EXPIRES_IN}
+      IO_SERVICE_URL:  http://io-service:3002   # hostname intern Docker
+    ports:
+      - "3001:3001"    # expus local pentru testare
+    networks:
+      - internal       # vorbește cu io-service
+    depends_on:
+      io-service:
+        condition: service_healthy
+    restart: unless-stopped
+
+
+# ============================================================
+# REȚELE
+# Separăm fizic serviciile — db-network nu e vizibil pentru auth
+# ============================================================
+networks:
+  db-network:
+    # postgres + io-service + adminer
+    # auth-service NU face parte din această rețea
+    # deci nu poate ajunge la postgres direct
+    driver: bridge
+
+  internal:
+    # io-service + auth-service (+ business-logic mai târziu)
+    # servicii care comunică între ele, fără acces la DB
+    driver: bridge
+
+
+# ============================================================
+# VOLUME
+# Persistăm datele între restart-uri
+# ============================================================
+volumes:
+  postgres-data:
+    driver: local
