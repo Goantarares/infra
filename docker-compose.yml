@@ -55,7 +55,7 @@ services:
   # ----------------------------------------------------------
   io-service:
     build:
-      context: ../../io-service    # calea către repo-ul io-service
+      context: ../io-service    # calea către repo-ul io-service
       dockerfile: Dockerfile
     container_name: io-service
     environment:
@@ -65,6 +65,9 @@ services:
       DB_NAME:     ${POSTGRES_DB}
       DB_USER:     ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+    ports:
+      - "3002:3002"
     networks:
       - db-network      # vorbește cu postgres
       - internal        # vorbește cu auth-service și business-logic
@@ -86,7 +89,7 @@ services:
   # ----------------------------------------------------------
   auth-service:
     build:
-      context: ../../auth-service
+      context: ../auth-service
       dockerfile: Dockerfile
     container_name: auth-service
     environment:
@@ -94,6 +97,7 @@ services:
       JWT_SECRET:      ${JWT_SECRET}
       JWT_EXPIRES_IN:  ${JWT_EXPIRES_IN}
       IO_SERVICE_URL:  http://io-service:3002   # hostname intern Docker
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
     ports:
       - "3001:3001"    # expus local pentru testare
     networks:
