@@ -108,6 +108,31 @@ services:
     restart: unless-stopped
 
 
+  # ----------------------------------------------------------
+  # business-logic-service
+  # ----------------------------------------------------------
+
+  business-logic-service:
+    build:
+      context: ../business-logic-service
+      dockerfile: Dockerfile
+    container_name: business-logic-service
+    environment:
+      PORT:            3003
+      IO_SERVICE_URL:  http://io-service:3002
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      JWT_SECRET:      ${JWT_SECRET}
+    ports:
+      - "3003:3003"
+    networks:
+      - internal
+    depends_on:
+      io-service:
+        condition: service_healthy
+    restart: unless-stopped
+
+
+
 # ============================================================
 # REȚELE
 # Separăm fizic serviciile — db-network nu e vizibil pentru auth
