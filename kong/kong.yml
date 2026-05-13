@@ -1,0 +1,84 @@
+_format_version: "3.0"
+
+# ============================================================
+# SERVICII
+# Fiecare serviciu = un microserviciu din aplicație
+# Kong trimite cererile la URL-ul definit aici
+# ============================================================
+services:
+
+  # ----------------------------------------------------------
+  # Auth Service — rute publice, fără JWT
+  # Register și login nu necesită autentificare
+  # ----------------------------------------------------------
+  - name: auth-service
+    url: http://auth-service:3001
+    routes:
+      - name: auth-routes
+        paths:
+          - /auth
+        strip_path: false    # păstrăm /auth în URL când trimitem mai departe
+
+
+  # ----------------------------------------------------------
+  # Business Logic — rute publice (GET /flights)
+  # Căutarea zborurilor e publică, nu necesită autentificare
+  # ----------------------------------------------------------
+  - name: flights-public
+    url: http://business-logic-service:3003
+    routes:
+      - name: flights-get
+        paths:
+          - /flights
+        methods:
+          - GET              # doar GET e public
+        strip_path: false
+
+
+  # ----------------------------------------------------------
+  # Business Logic — rute protejate cu JWT
+  # Rezervările și adăugarea zborurilor necesită autentificare
+  # ----------------------------------------------------------
+  - name: flights-protected
+    url: http://business-logic-service:3003
+    routes:
+      - name: flights-post
+        paths:
+          - /flights
+        methods:
+          - POST             # POST /flights (admin) necesită JWT
+        strip_path: false
+      - name: reservations-routes
+        paths:
+          - /reservations
+        strip_path: false    # GET, POST, PATCH pe /reservations
+    plugins:
+      - name: jwt            # JWT validation activat doar pe aceste rute
+        config:
+          claims_to_verify:
+            - exp            # verificăm că token-ul nu e expirat
+
+
+# ============================================================
+# PLUGIN-URI GLOBALE
+# Se aplică pe toate rutele
+# ============================================================
+plugins:
+
+  # Rate limiting — maxim 60 cereri pe minut per IP
+  - name: rate-limiting
+    config:
+      minute: 60
+      hour: 1000
+      policy: local          # contorizare locală, suficient pentru un singur nod
+
+
+# ============================================================
+# CONSUMATORI
+# Kong identifică utilizatorii după iss din JWT
+# ============================================================
+consumers:
+  - username: flights-user
+    jwt_secrets:
+      - key: flights-app        # trebuie să corespundă cu iss din token
+        secret: un_secret_lung_si_random  # același JWT_SECRET din .env
